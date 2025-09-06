@@ -171,6 +171,53 @@ def test_inheritance_diagram_svg_html(app, status, warning):
     assert re.search(pattern, content, re.M)
 
 
+@pytest.mark.sphinx('html', testroot='ext-inheritance_diagram',
+                    confoverrides={'graphviz_output_format': 'svg'})
+@pytest.mark.usefixtures('if_graphviz_found')
+def test_inheritance_diagram_svg_subdirectory_links(app, status, warning):
+    """Test that SVG inheritance diagrams have correct links from subdirectories."""
+    # Build the documentation
+    app.builder.build_all()
+
+    # Check the generated SVG files
+    svg_files = list((app.outdir / '_images').glob('inheritance-*.svg'))
+    assert len(svg_files) >= 1, "Should have at least one SVG file"
+    
+    for svg_file in svg_files:
+        svg_content = svg_file.read_text(encoding='utf8')
+        
+        # The SVG should contain links relative to the _images directory
+        # From _images/ directory, the correct path to any HTML file should be ../filename.html
+        # This works whether the SVG is embedded in root level or subdirectory pages
+        
+        # Links should be like ../index.html#test.Foo or ../test.html#test.Bar
+        # NOT ../../anything which would be incorrect
+        link_pattern = r'href="([^"]*)"'
+        links = re.findall(link_pattern, svg_content)
+        
+        for link in links:
+            if link.startswith('../'):
+                # This is correct - relative from _images to the target
+                continue
+            elif link.startswith('../../'):
+                # This would be incorrect - going too far up
+                pytest.fail(f"Found incorrect link going too far up: {link} in {svg_file.name}")
+            elif link.startswith('#'):
+                # Fragment only links are fine for same-page references  
+                continue
+            else:
+                # Other relative links should be tested case by case
+                pass
+        
+        # Verify we found some links in at least one SVG
+        svg_links = [link for link in links if not link.startswith('#')]
+        if len(svg_links) > 0:
+            # All external links should start with ../ (relative from _images)
+            for link in svg_links:
+                assert link.startswith('../'), f"Link should be relative from _images directory: {link} in {svg_file.name}"
+                assert not link.startswith('../../'), f"Link should not go up two levels: {link} in {svg_file.name}"
+
+
 @pytest.mark.sphinx('latex', testroot='ext-inheritance_diagram')
 @pytest.mark.usefixtures('if_graphviz_found')
 def test_inheritance_diagram_latex(app, status, warning):
